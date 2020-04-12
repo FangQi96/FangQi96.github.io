@@ -1,0 +1,108 @@
+I"t!<h1 id="flag">Flag</h1>
+
+<p>这是我企图读完的《深入理解Java虚拟机》的第二章，进度2/13，希望能够坚持到最后。这章的主要内容是JVM模型中内存区域的划分与异常。</p>
+
+<h2 id="运行时数据区域">运行时数据区域</h2>
+
+<ul>
+  <li>程序计数器（PC，线程私有）</li>
+  <li>Java虚拟机栈（JVM Stacks，线程私有）</li>
+  <li>本地方法栈（Native Method Stack，线程私有，Hotspot中直接跟JVM Stack整合到一块了）</li>
+  <li>Java堆（Java Heap，线程共享，有时也称GC堆）</li>
+  <li>方法区（Method Area，线程共享，JVM规范中为Heap的一个逻辑部分，别名Non-heap）</li>
+  <li>运行时常量池（Runtime Constant Pool，线程共享，方法区的一部分）</li>
+  <li>直接内存（Direct Memory，并不是运行时数据区/JVM规范定义的一部分，但NIO频繁使用）</li>
+</ul>
+
+<h3 id="程序计数器">程序计数器</h3>
+
+<p>如果线程执行的是Java方法，指向正在执行的字节码的地址；如果是Native方法，则为Undefined。</p>
+
+<p>不存在OutOfMemory的情况。</p>
+
+<h3 id="java虚拟机栈">Java虚拟机栈</h3>
+
+<p>描述的是Java方法执行的内存模型：每个方法执行时会创建一个Stack Frame用于存储局部变量表，操作数栈，动态链接，方法出口等。每个方法从调用直至执行完毕的过程，就是一个Frame在JVM Stack中从入栈到出栈到过程。口头谈到的栈经常指的是JVM Stack中的局部变量表部分。</p>
+
+<p>局部变量表中存放了：</p>
+<ol>
+  <li>基本数据类型（boolean，int，double…）</li>
+  <li>对象引用（reference类型）</li>
+  <li>returnAddress类型（指向了一条字节码指令的地址）</li>
+</ol>
+
+<p>线程请求栈深超过JVM允许时会StackOverFlow；JVM Stack扩展时无法申请足够内存会OutOfMemory。</p>
+
+<h3 id="本地方法栈">本地方法栈</h3>
+
+<p>作用与JVM Stack相似，不过是为了Native方法服务。</p>
+
+<p>同样会抛出StackOverFlow和OutOfMemory异常。</p>
+
+<h3 id="java堆">Java堆</h3>
+
+<p>Java堆是JVM所管理的内存中最大的一块，在虚拟机启动时创建，唯一的目的就是存放对象实例。但是随着JIT编辑器的发展与逃逸分析技术逐渐成熟,栈上分配、标量替换优化技术（？？？）导致所有的对象都分配在堆上也渐渐变得不是那么“绝对”了。</p>
+
+<p>Java堆是垃圾收集器管理的主要区域，很多时候也称GC堆；其可以处于物理上不连续的空间中，只要逻辑上连续即可，当前主流实现堆大小都是可扩展的。</p>
+
+<p>会抛出OutOfMemory异常。</p>
+
+<h3 id="java方法区">Java方法区</h3>
+
+<p>JVM规范把它描述成Heap的一个逻辑部分，为了和Heap区分开也叫它Non-Heap。因为HotSpot虚拟机用永久代GC方法来实现方法区，很多人都把方法区成为Permanent Generation，但是本质上二者并不等价。用于存储已被VM加载的Class信息，常量，static变量，JIT后的代码等数据。</p>
+
+<p>这个区域可以选择不进行GC，相对而言这个区域GC发生的很少，但并非数据进入了方法区就永久存在了，限制主要在于这部分回收很难让人满意，但是是必要的。</p>
+
+<p>当方法区无法满足内存分配需求的时候，就会抛出OutOfMemory错误。</p>
+
+<h3 id="运行时常量池">运行时常量池</h3>
+
+<p>方法区的一部分，Class文件中有一项是Constant Pool Table，用于存放编译期生成的各种字面量和符号引用，这部分内容将在类加载后放进Runtime Pool Table中存放。一般来说，还会把翻译出来的直接引用也存储在这里。运行时常量池相对于Class文件常量池另一个重要特征是动态性，运行期间的常量也可以放入Runtime Constant Pool。(<code class="highlighter-rouge">String</code>的<code class="highlighter-rouge">intern()</code>)</p>
+
+<p>和方法区一样会抛出OutOfMemory异常。</p>
+
+<h3 id="直接内存">直接内存</h3>
+
+<p>并不是JVM Runtime数据区的一部分，也不是JVM规范中定义的内存区域，但是JDK1.4中加入的NIO类可以利用Native函数直接分配Heap外内存，然后通过一个存在Heap中的DirectByteBuffer对象作为这块内存的饮用进行操作，避免了在Java Heap和Native Heap中来回复制数据。</p>
+
+<p>会抛出OutOfMemory异常，直接复现的话很容易崩掉哦。</p>
+
+<h2 id="object的创建">Object的创建</h2>
+
+<p>这里讨论的对象是普通的Java对象，不包括数组和Class对象。</p>
+
+<p>当VM遇到一条<code class="highlighter-rouge">new</code>指令时：</p>
+<ol>
+  <li>检查这个指令的参数能否在常量池中定位到一个类的符号引用，检查这个类是否加载，解析和初始化过。如果没有先执行类加载过程。</li>
+  <li>在类家在检查通过后，为新生对象分配内存。所需内存在类加载完成后便可完全确定，从Heap中划分出对应的内存即可。（分配的具体方法取决于内存物理上是否连续，连续的话可以用Bump the Pointer，不连续用Free List而Heapap中内存是否连续取决于GC有没有压缩整理的功能。）</li>
+  <li>内存分配完之后，VM把所有分配到的内存空间初始化成0值（不包括对象头）。保证这些实例可以在Java代码中不赋初值就可以直接使用。</li>
+  <li>VM进行必要设置：如对象是哪个类的实例，如何找到类的元数据，Hash值，GC分代年龄信息，把这些存放在Header之中。紧接着一般会执行<init>方法，按照程序员的意愿初始化变量。</init></li>
+</ol>
+
+<p><em>PS:</em>在分配内存时对Heap指针的修改可能是线程不安全的，解决方法一种是对这个分配内存动作进行同步处理；另一种是每个线程维护一个预先分配的Thread Local Allocation Buffer（TLAB），需要分配时现在自己线程的TLAB上分，不够了再同步锁定分。</p>
+
+<h2 id="对象的内存布局">对象的内存布局</h2>
+
+<p>HotSpot虚拟机中，可以分为3块：</p>
+<ol>
+  <li>对象头（Header）</li>
+  <li>实例数据（Instance Data）</li>
+  <li>对齐填充（Padding）</li>
+</ol>
+
+<p>Header中又包括Mark Word和类型指针两部分信息。Mark Word用于存储对象自身的Runtime Data，32/64bit，会根据对象的状态复用自己的存储空间。另一部分是类型指针，指向它的类元数据的指针，VM通过这个指针来确定对象是哪个类的实例。<em>但是</em>查找对象的元数据不一定一定要经过对象本身。另外若是数组，那么Header中需要存储数组的长度length。（因为元数据无法确定数组大小）</p>
+
+<p>接下来Instance Data是对象真正存储的有效信息，也是在代码中所定义的各种类型的字段内容。无论是父类继承还是子类定义的，都要记录，顺序受FieldsAllocationStyle和字段在Java源码中的定义顺序影响。HotSpot默认为longs/doubles, ints, shorts/chars, bytes/booleans, oops(Ordinary Object Pointers)。相同宽度的总被分配到一起，满足这个前提条件的情况下，父类的变量会出现在子类之前，如果CompactFields为true（默认为true），子类的较窄的变量可能插到父类的空隙里。</p>
+
+<p>Padding不是必然存在，HotSpot要求对象的起始地址必须是8Byte的整数倍，也就是说对象的大小必须是8Byte的整数倍，注意Header部分正好是8Byte的整数倍（不是Mark Word哦），Instance Data没对齐的时候用Padding对齐。</p>
+
+<h2 id="对象的访问定位">对象的访问定位</h2>
+
+<p>Java程序需要通过Stack上的reference数据来操作Heap上的具体对象，JVM规范中只规定了一个指向对象的引用，所以对象访问方式取决于VM的具体实现，目前主流分为<em>句柄</em>和<em>直接指针</em>两种。</p>
+
+<p>如果使用句柄访问，Heap中会专门分出来一块句柄池，reference中存的是对象的句柄地址，句柄包含了对象实例数据（Heap中）和类型数据（方法区中）的各自的具体地址信息。</p>
+
+<p>如果使用直接内存，reference在Heap中指向的内容，既有对象的实例数据，又有一个到对象数据类型的指针。HotSpot使用的是这种方式。</p>
+
+<p>第一种方式的优点是稳定，reference指向的位置恒定（句柄池）；第二种方式的优点是快，减少了一次指针定位的开销。</p>
+:ET
